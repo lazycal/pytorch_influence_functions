@@ -32,24 +32,27 @@ def s_test(z_test, t_test, model, z_loader, gpu=-1, damp=0.01, scale=25.0,
     # TODO: Dynamically set the recursion depth so that iterations stops
     # once h_estimate stabilises
     ################################
-    for i in range(recursion_depth):
-        # take just one random sample from training dataset
-        # easiest way to just use the DataLoader once, break at the end of loop
-        #########################
-        # TODO: do x, t really have to be chosen RANDOMLY from the train set?
-        #########################
-        for x, t in z_loader:
-            if gpu >= 0:
-                x, t = x.cuda(), t.cuda()
-            y = model(x)
-            loss = calc_loss(y, t)
-            hv = hvp(loss, list(model.parameters()), h_estimate)
-            # Recursively caclulate h_estimate
-            h_estimate = [
-                _v + (1 - damp) * _h_e - _hv / scale
-                for _v, _h_e, _hv in zip(v, h_estimate, hv)]
-            break
+    # take just one random sample from training dataset
+    # easiest way to just use the DataLoader once, break at the end of loop
+    #########################
+    # TODO: do x, t really have to be chosen RANDOMLY from the train set?
+    #########################
+    i = 0
+    for x, t in z_loader:
+        if gpu >= 0:
+            x, t = x.cuda(), t.cuda()
+        y = model(x)
+        loss = calc_loss(y, t)
+        hv = hvp(loss, list(model.parameters()), h_estimate)
+        # Recursively caclulate h_estimate
+        h_estimate = [
+            _v + (1 - damp) * _h_e - _hv / scale
+            for _v, _h_e, _hv in zip(v, h_estimate, hv)]
         display_progress("Calc. s_test recursions: ", i, recursion_depth)
+        i += 1
+        if i == recursion_depth:
+            break
+    
     return h_estimate
 
 
