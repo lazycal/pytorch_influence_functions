@@ -1,25 +1,25 @@
 #! /usr/bin/env python3
 
 import torch
+import torch.nn.functional as F
 from torch.autograd import grad
 from torch.autograd.functional import vhp
-from pytorch_influence_functions.utils import display_progress
-import time
 from tqdm import tqdm
 
 
-def s_test(x, y, model, samples_loader, gpu=-1, damp=0.01, scale=25.0,
-           recursion_depth=5000):
+def s_test(
+    x, y, model, samples_loader, gpu=-1, damp=0.01, scale=25.0, recursion_depth=5000
+):
     """s_test can be precomputed for each test point of interest, and then
     multiplied with grad_z to get the desired value for each training point.
     Here, stochastic estimation is used to calculate s_test. s_test is the
     Inverse Hessian Vector Product.
 
     Arguments:
-        z_test: torch tensor, test data points, such as test images
-        t_test: torch tensor, contains all test data labels
+        x: torch tensor, test data points, such as test images
+        y: torch tensor, contains all test data labels
         model: torch NN, model used to evaluate the dataset
-        z_loader: torch Dataloader, can load the training dataset
+        samples_loader: torch DataLoader, can load the training dataset
         gpu: int, GPU id to use if >=0 and -1 means use CPU
         damp: float, dampening factor
         scale: float, scaling factor
@@ -28,20 +28,16 @@ def s_test(x, y, model, samples_loader, gpu=-1, damp=0.01, scale=25.0,
 
     Returns:
         h_estimate: list of torch tensors, s_test"""
-    v = grad_z(x, y, model, gpu)
 
+    v = grad_z(x, y, model, gpu)
     h_estimate = v
 
-    ################################
-    # TODO: Dynamically set the recursion depth so that iterations stops
-    # once h_estimate stabilises
-
     params, names = make_functional(model)
-    
     # Make params regular Tensors instead of nn.Parameter
     params = tuple(p.detach().requires_grad_() for p in params)
-    
-    for i, (x, y) in tqdm(enumerate(samples_loader), total=recursion_depth):
+
+    # TODO: Dynamically set the recursion depth so that iterations stop once h_estimate stabilises
+    for x, y in tqdm(samples_loader):
 
         if gpu >= 0:
             x, y = x.cuda(), y.cuda()
@@ -51,21 +47,20 @@ def s_test(x, y, model, samples_loader, gpu=-1, damp=0.01, scale=25.0,
             out = model(x)
             loss = calc_loss(out, y)
             return loss
-        
-        hv = vhp(f, params, tuple(h_estimate))[1]
-        
+
+        hv = vhp(f, params, tuple(h_estimate), strict=True)[1]
+
         # Recursively calculate h_estimate
         with torch.no_grad():
             h_estimate = [
                 _v + (1 - damp) * _h_e - _hv / scale
                 for _v, _h_e, _hv in zip(v, h_estimate, hv)
             ]
-        
-        # display_progress("Calc. s_test recursions: ", i, recursion_depth)        
-        if i == recursion_depth - 1:
-            break
-    
+
+    load_weights(model, names, params, as_params=True)
+
     return h_estimate
+
 
 def del_attr(obj, names):
     if len(names) == 1:
@@ -73,46 +68,45 @@ def del_attr(obj, names):
     else:
         del_attr(getattr(obj, names[0]), names[1:])
 
+
 def set_attr(obj, names, val):
     if len(names) == 1:
         setattr(obj, names[0], val)
     else:
         set_attr(getattr(obj, names[0]), names[1:], val)
 
-def make_functional(mod):
-    orig_params = tuple(mod.parameters())
+
+def make_functional(model):
+    orig_params = tuple(model.parameters())
     # Remove all the parameters in the model
     names = []
-    
-    for name, p in list(mod.named_parameters()):
-        del_attr(mod, name.split("."))
+
+    for name, p in list(model.named_parameters()):
+        del_attr(model, name.split("."))
         names.append(name)
-    
+
     return orig_params, names
 
-def load_weights(mod, names, params):
+
+def load_weights(model, names, params, as_params=False):
     for name, p in zip(names, params):
-        set_attr(mod, name.split("."), torch.nn.Parameter(p))
+        if not as_params:
+            set_attr(model, name.split("."), p)
+        else:
+            set_attr(model, name.split("."), torch.nn.Parameter(p))
 
 
-def calc_loss(y, t):
+def calc_loss(logits, labels):
     """Calculates the loss
 
     Arguments:
-        y: torch tensor, input with size (minibatch, nr_of_classes)
-        t: torch tensor, target expected by loss of size (0 to nr_of_classes-1)
+        logits: torch tensor, input with size (minibatch, nr_of_classes)
+        labels: torch tensor, target expected by loss of size (0 to nr_of_classes-1)
 
     Returns:
         loss: scalar, the loss"""
-    ####################
-    # if dim == [0, 1, 3] then dim=0; else dim=1
-    ####################
-    # y = torch.nn.functional.log_softmax(y, dim=0)
-    y = torch.nn.functional.log_softmax(y)
-    loss = torch.nn.functional.nll_loss(
-        y, t, weight=None, reduction='mean')
-    
-    return loss
+
+    return F.cross_entropy(logits, labels)
 
 
 def grad_z(z, t, model, gpu=-1):
@@ -138,7 +132,6 @@ def grad_z(z, t, model, gpu=-1):
     y = model(z)
 
     loss = calc_loss(y, t)
-    
+
     # Compute sum of gradients from model parameters to loss
     return list(grad(loss, list(model.parameters()), create_graph=True))
-

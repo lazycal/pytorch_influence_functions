@@ -8,6 +8,9 @@ import copy
 import logging
 
 from pathlib import Path
+
+from torch.utils.data import DataLoader
+
 from pytorch_influence_functions.influence_function import s_test, grad_z
 from pytorch_influence_functions.utils import save_json, display_progress
 from tqdm import tqdm
@@ -110,24 +113,33 @@ def calc_s_test_single(
 
     Returns:
         s_test_vec: torch tensor, contains s_test for a single test image"""
-    
+
     inverse_hvp = [torch.zeros_like(params) for params in model.parameters()]
 
     for i in range(r):
+
+        hessian_loader = DataLoader(
+            train_loader.dataset,
+            sampler=torch.utils.data.RandomSampler(
+                train_loader.dataset, True, num_samples=5000
+            ),
+            num_workers=4,
+        )
+
         cur_estimate = s_test(
-                z_test,
-                t_test,
-                model,
-                train_loader,
-                gpu=gpu,
-                damp=damp,
-                scale=scale,
-                recursion_depth=recursion_depth,
-            )
+            z_test,
+            t_test,
+            model,
+            hessian_loader,
+            gpu=gpu,
+            damp=damp,
+            scale=scale,
+            recursion_depth=recursion_depth,
+        )
 
-        print(cur_estimate[0].norm())
-
-        inverse_hvp = [old + (cur / scale) for old, cur in zip(inverse_hvp, cur_estimate)]
+        inverse_hvp = [
+            old + (cur / scale) for old, cur in zip(inverse_hvp, cur_estimate)
+        ]
 
         # display_progress("Averaging r-times: ", i, r)
 
@@ -394,7 +406,8 @@ def calc_influence_single(
                         torch.sum(k * j).data
                         for k, j in zip(grad_z_vec, s_test_vec)
                     ]
-                ) / train_dataset_size
+                )
+                / train_dataset_size
             )
 
         influences.append(tmp_influence)
@@ -505,11 +518,10 @@ def calc_img_wise(config, model, train_loader, test_loader):
         # from the sample_list instead
         if test_sample_num and test_start_index:
             if j >= len(sample_list):
-                logging.warn(
+                logging.warning(
                     "ERROR: the test sample id is out of index of the"
                     " defined test set. Jumping to next test sample."
                 )
-                next
             i = sample_list[j]
         else:
             i = j
@@ -520,7 +532,7 @@ def calc_img_wise(config, model, train_loader, test_loader):
             train_loader,
             test_loader,
             test_id_num=i,
-            gpu=0,
+            gpu=config["gpu"],
             recursion_depth=config["recursion_depth"],
             r=config["r_averaging"],
         )
