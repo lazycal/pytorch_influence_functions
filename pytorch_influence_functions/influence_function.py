@@ -2,14 +2,16 @@
 
 import torch
 from torch.autograd import grad
+from torch.autograd.functional import vhp
 from pytorch_influence_functions.utils import display_progress
+import time
 
 
 def s_test(z_test, t_test, model, z_loader, gpu=-1, damp=0.01, scale=25.0,
            recursion_depth=5000):
     """s_test can be precomputed for each test point of interest, and then
     multiplied with grad_z to get the desired value for each training point.
-    Here, strochastic estimation is used to calculate s_test. s_test is the
+    Here, stochastic estimation is used to calculate s_test. s_test is the
     Inverse Hessian Vector Product.
 
     Arguments:
@@ -26,7 +28,7 @@ def s_test(z_test, t_test, model, z_loader, gpu=-1, damp=0.01, scale=25.0,
     Returns:
         h_estimate: list of torch tensors, s_test"""
     v = grad_z(z_test, t_test, model, gpu)
-    h_estimate = v.copy()
+    h_estimate = v
 
     ################################
     # TODO: Dynamically set the recursion depth so that iterations stops
@@ -37,23 +39,63 @@ def s_test(z_test, t_test, model, z_loader, gpu=-1, damp=0.01, scale=25.0,
     #########################
     # TODO: do x, t really have to be chosen RANDOMLY from the train set?
     #########################
-    i = 0
-    for x, t in z_loader:
+
+    params, names = make_functional(model)
+    # Make params regular Tensors instead of nn.Parameter
+    params = tuple(p.detach().requires_grad_() for p in params)
+    
+    for i, (x, t) in enumerate(z_loader):
+
         if gpu >= 0:
             x, t = x.cuda(), t.cuda()
-        y = model(x)
-        loss = calc_loss(y, t)
-        hv = hvp(loss, list(model.parameters()), h_estimate)
-        # Recursively caclulate h_estimate
-        h_estimate = [
-            _v + (1 - damp) * _h_e - _hv / scale
-            for _v, _h_e, _hv in zip(v, h_estimate, hv)]
-        display_progress("Calc. s_test recursions: ", i, recursion_depth)
-        i += 1
-        if i == recursion_depth:
+
+        def f(*new_params):
+            load_weights(model, names, new_params)
+            out = model(x)
+            loss = calc_loss(out, t)
+            return loss
+        
+        hv = vhp(f, params, tuple(h_estimate))[1]
+        
+        # Recursively calculate h_estimate
+        with torch.no_grad():
+            h_estimate = [
+                _v + (1 - damp) * _h_e - _hv / scale
+                for _v, _h_e, _hv in zip(v, h_estimate, hv)
+            ]
+        
+        display_progress("Calc. s_test recursions: ", i, recursion_depth)        
+        if i == recursion_depth - 1:
             break
     
     return h_estimate
+
+def del_attr(obj, names):
+    if len(names) == 1:
+        delattr(obj, names[0])
+    else:
+        del_attr(getattr(obj, names[0]), names[1:])
+
+def set_attr(obj, names, val):
+    if len(names) == 1:
+        setattr(obj, names[0], val)
+    else:
+        set_attr(getattr(obj, names[0]), names[1:], val)
+
+def make_functional(mod):
+    orig_params = tuple(mod.parameters())
+    # Remove all the parameters in the model
+    names = []
+    
+    for name, p in list(mod.named_parameters()):
+        del_attr(mod, name.split("."))
+        names.append(name)
+    
+    return orig_params, names
+
+def load_weights(mod, names, params):
+    for name, p in zip(names, params):
+        set_attr(mod, name.split("."), torch.nn.Parameter(p))
 
 
 def calc_loss(y, t):
@@ -98,38 +140,3 @@ def grad_z(z, t, model, gpu=-1):
     # Compute sum of gradients from model parameters to loss
     return list(grad(loss, list(model.parameters()), create_graph=True))
 
-
-def hvp(y, w, v):
-    """Multiply the Hessians of y and w by v.
-    Uses a backprop-like approach to compute the product between the Hessian
-    and another vector efficiently, which even works for large Hessians.
-    Example: if: y = 0.5 * w^T A x then hvp(y, w, v) returns and expression
-    which evaluates to the same values as (A + A.t) v.
-
-    Arguments:
-        y: scalar/tensor, for example the output of the loss function
-        w: list of torch tensors, tensors over which the Hessian
-            should be constructed
-        v: list of torch tensors, same shape as w,
-            will be multiplied with the Hessian
-
-    Returns:
-        return_grads: list of torch tensors, contains product of Hessian and v.
-
-    Raises:
-        ValueError: `y` and `w` have a different length."""
-    if len(w) != len(v):
-        raise(ValueError("w and v must have the same length."))
-
-    # First backprop
-    first_grads = grad(y, w, retain_graph=True, create_graph=True)
-
-    # Elementwise products
-    elemwise_products = 0
-    for grad_elem, v_elem in zip(first_grads, v):
-        elemwise_products += torch.sum(grad_elem * v_elem)
-
-    # Second backprop
-    return_grads = grad(elemwise_products, w, create_graph=True)
-
-    return return_grads
