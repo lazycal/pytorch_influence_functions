@@ -5,9 +5,10 @@ from torch.autograd import grad
 from torch.autograd.functional import vhp
 from pytorch_influence_functions.utils import display_progress
 import time
+from tqdm import tqdm
 
 
-def s_test(z_test, t_test, model, z_loader, gpu=-1, damp=0.01, scale=25.0,
+def s_test(x, y, model, samples_loader, gpu=-1, damp=0.01, scale=25.0,
            recursion_depth=5000):
     """s_test can be precomputed for each test point of interest, and then
     multiplied with grad_z to get the desired value for each training point.
@@ -27,32 +28,28 @@ def s_test(z_test, t_test, model, z_loader, gpu=-1, damp=0.01, scale=25.0,
 
     Returns:
         h_estimate: list of torch tensors, s_test"""
-    v = grad_z(z_test, t_test, model, gpu)
+    v = grad_z(x, y, model, gpu)
+
     h_estimate = v
 
     ################################
     # TODO: Dynamically set the recursion depth so that iterations stops
     # once h_estimate stabilises
-    ################################
-    # take just one random sample from training dataset
-    # easiest way to just use the DataLoader once, break at the end of loop
-    #########################
-    # TODO: do x, t really have to be chosen RANDOMLY from the train set?
-    #########################
 
     params, names = make_functional(model)
+    
     # Make params regular Tensors instead of nn.Parameter
     params = tuple(p.detach().requires_grad_() for p in params)
     
-    for i, (x, t) in enumerate(z_loader):
+    for i, (x, y) in tqdm(enumerate(samples_loader), total=recursion_depth):
 
         if gpu >= 0:
-            x, t = x.cuda(), t.cuda()
+            x, y = x.cuda(), y.cuda()
 
         def f(*new_params):
             load_weights(model, names, new_params)
             out = model(x)
-            loss = calc_loss(out, t)
+            loss = calc_loss(out, y)
             return loss
         
         hv = vhp(f, params, tuple(h_estimate))[1]
@@ -64,7 +61,7 @@ def s_test(z_test, t_test, model, z_loader, gpu=-1, damp=0.01, scale=25.0,
                 for _v, _h_e, _hv in zip(v, h_estimate, hv)
             ]
         
-        display_progress("Calc. s_test recursions: ", i, recursion_depth)        
+        # display_progress("Calc. s_test recursions: ", i, recursion_depth)        
         if i == recursion_depth - 1:
             break
     
@@ -114,6 +111,7 @@ def calc_loss(y, t):
     y = torch.nn.functional.log_softmax(y)
     loss = torch.nn.functional.nll_loss(
         y, t, weight=None, reduction='mean')
+    
     return loss
 
 
@@ -132,11 +130,15 @@ def grad_z(z, t, model, gpu=-1):
         grad_z: list of torch tensor, containing the gradients
             from model parameters to loss"""
     model.eval()
+
     # initialize
     if gpu >= 0:
         z, t = z.cuda(), t.cuda()
+
     y = model(z)
+
     loss = calc_loss(y, t)
+    
     # Compute sum of gradients from model parameters to loss
     return list(grad(loss, list(model.parameters()), create_graph=True))
 
