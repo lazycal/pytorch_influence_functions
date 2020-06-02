@@ -13,3 +13,4 @@ pyvenv.cfg
 .vscode/
 .idea/
 /.python-version
+/pytorch_influence_functions/test_influence_functions/lightning_logs/

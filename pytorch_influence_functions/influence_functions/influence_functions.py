@@ -6,14 +6,18 @@ import datetime
 import numpy as np
 import copy
 import logging
+from tqdm import tqdm
 
 from pathlib import Path
 
-from torch.utils.data import DataLoader
-
-from pytorch_influence_functions.influence_function import s_test, grad_z
-from pytorch_influence_functions.utils import save_json, display_progress
-from tqdm import tqdm
+from pytorch_influence_functions.influence_functions.hvp_grad import (
+    grad_z,
+    s_test_sample,
+)
+from pytorch_influence_functions.influence_functions.utils import (
+    save_json,
+    display_progress,
+)
 
 
 def calc_s_test(
@@ -64,7 +68,7 @@ def calc_s_test(
         z_test = test_loader.collate_fn([z_test])
         t_test = test_loader.collate_fn([t_test])
 
-        s_test_vec = calc_s_test_single(
+        s_test_vec = s_test_sample(
             model, z_test, t_test, train_loader, gpu, damp, scale, recursion_depth, r
         )
 
@@ -80,72 +84,6 @@ def calc_s_test(
         )
 
     return s_tests, save
-
-
-def calc_s_test_single(
-    model,
-    z_test,
-    t_test,
-    train_loader,
-    gpu=-1,
-    damp=0.01,
-    scale=25,
-    recursion_depth=5000,
-    r=1,
-):
-    """Calculates s_test for a single test image taking into account the whole
-    training dataset. s_test = invHessian * nabla(Loss(test_img, model params))
-
-    Arguments:
-        model: pytorch model, for which s_test should be calculated
-        z_test: test image
-        t_test: test image label
-        train_loader: pytorch dataloader, which can load the train data
-        gpu: int, device id to use for GPU, -1 for CPU (default)
-        damp: float, influence function damping factor
-        scale: float, influence calculation scaling factor
-        recursion_depth: int, number of recursions to perform during s_test
-            calculation, increases accuracy. r*recursion_depth should equal the
-            training dataset size.
-        r: int, number of iterations of which to take the avg.
-            of the h_estimate calculation; r*recursion_depth should equal the
-            training dataset size.
-
-    Returns:
-        s_test_vec: torch tensor, contains s_test for a single test image"""
-
-    inverse_hvp = [torch.zeros_like(params) for params in model.parameters()]
-
-    for i in range(r):
-
-        hessian_loader = DataLoader(
-            train_loader.dataset,
-            sampler=torch.utils.data.RandomSampler(
-                train_loader.dataset, True, num_samples=5000
-            ),
-            num_workers=4,
-        )
-
-        cur_estimate = s_test(
-            z_test,
-            t_test,
-            model,
-            hessian_loader,
-            gpu=gpu,
-            damp=damp,
-            scale=scale,
-            recursion_depth=recursion_depth,
-        )
-
-        inverse_hvp = [
-            old + (cur / scale) for old, cur in zip(inverse_hvp, cur_estimate)
-        ]
-
-        # display_progress("Averaging r-times: ", i, r)
-
-    inverse_hvp = [i / r for i in inverse_hvp]
-
-    return inverse_hvp
 
 
 def calc_grad_z(model, train_loader, save_pth=False, gpu=-1, start=0):
@@ -212,7 +150,7 @@ def load_s_test(
     logging.info(f"Loading s_test from: {s_test_dir} ...")
     num_s_test_files = len(s_test_dir.glob("*.s_test"))
     if num_s_test_files != r_sample_size:
-        logging.warn(
+        logging.warning(
             "Load Influence Data: number of s_test sample files"
             " mismatches the available samples"
         )
@@ -366,7 +304,7 @@ def calc_influence_single(
         z_test, t_test = test_loader.dataset[test_id_num]
         z_test = test_loader.collate_fn([z_test])
         t_test = test_loader.collate_fn([t_test])
-        s_test_vec = calc_s_test_single(
+        s_test_vec = s_test_sample(
             model,
             z_test,
             t_test,
