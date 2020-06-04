@@ -7,7 +7,7 @@ import torch
 class DummyDataset(Dataset):
     def __init__(self, n_features, n_classes, train=True):
         self.train = train
-        seed = 42
+        seed = 0
         x, y = make_classification(
             50000,
             n_features,

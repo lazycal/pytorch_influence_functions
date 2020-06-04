@@ -223,54 +223,52 @@ def load_weights(model, names, params, as_params=False):
             set_attr(model, name.split("."), torch.nn.Parameter(p))
 
 
-def split_like(tensors: Sequence[torch.Tensor], flat_tensor: torch.Tensor):
+def tensor_to_tuple(vec, parameters):
+    r"""Convert one vector to the parameters
+
+    Adapted from
+    https://pytorch.org/docs/master/generated/torch.nn.utils.vector_to_parameters.html#torch.nn.utils.vector_to_parameters
+
+    Arguments:
+        vec (Tensor): a single vector represents the parameters of a model.
+        parameters (Iterable[Tensor]): an iterator of Tensors that are the
+            parameters of a model.
     """
-    Split a flattened (and possibly batched) tensor back into a list of tensors.
-    If flat_tensor is not batched, then the result will be a list of tensors of the
-    same shape as `tensors`. Otherwise, let [A_{i,0}, ..., A_{i,n_i-1}] be the
-    shape of the ith tensor and D_i = A_{i,0} * ... * A_{i,n_i-1} be its size.
-    Then flat_tensor must be of shape [?, sum_i D_i]. The result will be a
-    list of tensors of shape [?, A_{i,0}, ..., A_{i,n_i-1}].
+    if not isinstance(vec, torch.Tensor):
+        raise TypeError('expected torch.Tensor, but got: {}'
+                        .format(torch.typename(vec)))
 
-    From https://github.com/kohpangwei/group-influence-release/blob/master/influence/logistic_regression.py.
+    # Pointer for slicing the vector for each parameter
+    pointer = 0
 
-    :param tensors: A list of tensors of the desired shape to split flat_tensor into.
-    :param flat_tensor: The tensor to split, possibly batched.
-    :return: A tuple of tensors of the same shape as `tensors`, but possibly batched.
-    """
-    split_sizes, split_shapes = [], []
-    for tensor in tensors:
-        total_dim = 1
-        for dim in tensor.shape:
-            if dim is None:
-                raise ValueError("Source tensors must have concrete shapes.")
-            total_dim *= int(dim)
-        split_sizes.append(int(total_dim))
-        split_shapes.append([int(dim) for dim in tensor.shape])
+    split_tensors = []
+    for param in parameters:
 
-    split_axis = len(flat_tensor.shape) - 1
-    split_tensors = torch.split(flat_tensor, split_sizes, split_axis)
-    batched_shapes = split_shapes
-    if split_axis != 0:
-        batched_shapes = [[-1] + shape for shape in batched_shapes]
+        # The length of the parameter
+        num_param = param.numel()
+        # Slice the vector, reshape it, and replace the old data of the parameter
+        split_tensors.append(vec[pointer:pointer + num_param].view_as(param))
 
-    reshaped_tensors = [
-        torch.reshape(split_tensor, batched_shape)
-        for split_tensor, batched_shape in zip(split_tensors, batched_shapes)
-    ]
-    return tuple(reshaped_tensors)
+        # Increment the pointer
+        pointer += num_param
+
+    return tuple(split_tensors)
 
 
-def flatten(tensors):
-    """
-    Flattens the list of tensor(s) into a 1D tensor.
+def parameters_to_vector(parameters):
+    r"""Convert parameters to one vector
 
-    From https://github.com/kohpangwei/group-influence-release/blob/master/influence/logistic_regression.py.
-
-    Args:
-        tensors: List of model parameters (List of tensor(s))
+    Arguments:
+        parameters (Iterable[Tensor]): an iterator of Tensors that are the
+            parameters of a model.
 
     Returns:
-        A flattened 1D tensor
+        The parameters represented by a single vector
     """
-    return torch.cat([torch.reshape(_params, [-1]) for _params in tensors], dim=0)
+    # Flag for the device where the parameter is located
+
+    vec = []
+    for param in parameters:
+        vec.append(param.view(-1))
+
+    return torch.cat(vec)

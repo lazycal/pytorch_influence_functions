@@ -1,6 +1,7 @@
 #! /usr/bin/env python3
 import torch
 import torch.nn.functional as F
+from torch.nn.utils import parameters_to_vector
 from torch.autograd import grad
 from torch.autograd.functional import vhp
 from torch.utils.data import DataLoader
@@ -8,9 +9,9 @@ from tqdm import tqdm
 
 from pytorch_influence_functions.influence_functions.utils import (
     conjugate_gradient,
-    flatten, load_weights,
+    load_weights,
     make_functional,
-    split_like,
+    tensor_to_tuple,
 )
 
 
@@ -19,7 +20,7 @@ def s_test_cg(x_test, y_test, model, train_loader, damp, gpu=-1, verbose=True):
     if gpu >= 0:
         x_test, y_test = x_test.cuda(), y_test.cuda()
 
-    v_flat = flatten(grad_z(x_test, y_test, model, gpu))
+    v_flat = parameters_to_vector(grad_z(x_test, y_test, model, gpu))
 
     def hvp_fn(x):
 
@@ -28,7 +29,7 @@ def s_test_cg(x_test, y_test, model, train_loader, damp, gpu=-1, verbose=True):
         params, names = make_functional(model)
         # Make params regular Tensors instead of nn.Parameter
         params = tuple(p.detach().requires_grad_() for p in params)
-        flat_params = flatten(params)
+        flat_params = parameters_to_vector(params)
 
         hvp = torch.zeros_like(flat_params)
 
@@ -38,7 +39,7 @@ def s_test_cg(x_test, y_test, model, train_loader, damp, gpu=-1, verbose=True):
                 x_train, y_train = x_train.cuda(), y_train.cuda()
 
             def f(flat_params_):
-                split_params = split_like(params, flat_params_)
+                split_params = tensor_to_tuple(flat_params_, params)
                 load_weights(model, names, split_params)
                 out = model(x_train)
                 loss = calc_loss(out, y_train)
@@ -62,7 +63,11 @@ def s_test_cg(x_test, y_test, model, train_loader, damp, gpu=-1, verbose=True):
     debug_callback = print_function_value if verbose else None
 
     result = conjugate_gradient(
-        hvp_fn, v_flat.cpu().numpy(), debug_callback=debug_callback, avextol=1e-8, maxiter=100
+        hvp_fn,
+        v_flat.cpu().numpy(),
+        debug_callback=debug_callback,
+        avextol=1e-8,
+        maxiter=100,
     )
 
     return torch.tensor(result)
@@ -135,9 +140,9 @@ def calc_loss(logits, labels):
 
     Returns:
         loss: scalar, the loss"""
-    pred = F.log_softmax(logits, dim=1)
+    pred = F.softmax(logits)
 
-    return F.nll_loss(pred, labels)
+    return F.cross_entropy(logits, labels)
 
 
 def grad_z(x, y, model, gpu=-1):
