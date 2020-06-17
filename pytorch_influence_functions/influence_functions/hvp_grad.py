@@ -25,6 +25,8 @@ def s_test_cg(x_test, y_test, model, train_loader, damp, gpu=-1, verbose=True):
     def hvp_fn(x):
 
         x_tensor = torch.tensor(x, requires_grad=False)
+        if gpu >= 0:
+            x_tensor = x_tensor.cuda()
 
         params, names = make_functional(model)
         # Make params regular Tensors instead of nn.Parameter
@@ -70,7 +72,11 @@ def s_test_cg(x_test, y_test, model, train_loader, damp, gpu=-1, verbose=True):
         maxiter=100,
     )
 
-    return torch.tensor(result)
+    result = torch.tensor(result)
+    if gpu >= 0:
+        result = result.cuda()
+
+    return result
 
 
 def s_test(x_test, y_test, model, i, samples_loader, gpu=-1, damp=0.01, scale=25.0):

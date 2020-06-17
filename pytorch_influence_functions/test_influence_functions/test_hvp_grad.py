@@ -41,6 +41,10 @@ class TestIHVPGrad(TestCase):
         cls.model = LogisticRegression(cls.n_classes, cls.n_features)
 
         gpus = 1 if torch.cuda.is_available() else 0
+        
+        if gpus == 1:
+            cls.model = cls.model.cuda()
+
         trainer = pl.Trainer(gpus=gpus, max_epochs=10)
         # trainer.fit(self.model)
 
@@ -72,6 +76,9 @@ class TestIHVPGrad(TestCase):
         # Compute estimated IVHP
         cls.gpu = 1 if torch.cuda.is_available() else -1
 
+        if cls.gpu == 1:
+            cls.model = cls.model.cuda()
+
         cls.train_loader = cls.model.train_dataloader(batch_size=40000)
         # Compute anc flatten grad
         grads = grad_z(cls.x_test, cls.y_test, cls.model, gpu=cls.gpu)
@@ -88,6 +95,8 @@ class TestIHVPGrad(TestCase):
 
         # Initialize Hessian
         h = torch.zeros([flat_params.shape[0], flat_params.shape[0]])
+        if cls.gpu == 1:
+            h = h.cuda()
 
         # Compute real IHVP
         for x_train, y_train in cls.train_loader:
