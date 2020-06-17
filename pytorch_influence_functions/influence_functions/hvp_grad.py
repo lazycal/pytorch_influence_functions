@@ -146,7 +146,6 @@ def calc_loss(logits, labels):
 
     Returns:
         loss: scalar, the loss"""
-    pred = F.softmax(logits)
 
     return F.cross_entropy(logits, labels)
 

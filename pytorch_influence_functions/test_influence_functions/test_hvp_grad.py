@@ -42,9 +42,6 @@ class TestIHVPGrad(TestCase):
 
         gpus = 1 if torch.cuda.is_available() else 0
         
-        if gpus == 1:
-            cls.model = cls.model.cuda()
-
         trainer = pl.Trainer(gpus=gpus, max_epochs=10)
         # trainer.fit(self.model)
 
@@ -65,7 +62,7 @@ class TestIHVPGrad(TestCase):
                 )
 
         # Setup test point data
-        cls.test_idx = 8
+        cls.test_idx = 5
         cls.x_test = torch.tensor(
             cls.model.test_set.data[[cls.test_idx]], dtype=torch.float
         )
