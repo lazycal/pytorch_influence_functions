@@ -19,11 +19,11 @@ from pytorch_influence_functions.influence_functions.utils import (
     tensor_to_tuple,
     parameters_to_vector,
 )
-from pytorch_influence_functions.test_influence_functions.utils.dummy_dataset import (
+from utils.dummy_dataset import (
     DummyDataset,
 )
 
-from pytorch_influence_functions.test_influence_functions.utils.logistic_regression import (
+from utils.logistic_regression import (
     LogisticRegression,
 )
 

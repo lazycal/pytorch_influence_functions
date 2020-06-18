@@ -1,3 +1,7 @@
+*.npy
+*.png
+*/data/
+
 *.pyc
 outdir/*
 data/*

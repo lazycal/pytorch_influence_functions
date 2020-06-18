@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from pytorch_lightning.core.lightning import LightningModule
 from torch.utils.data import DataLoader, Subset
 
-from pytorch_influence_functions.test_influence_functions.utils.dummy_dataset import (
+from .dummy_dataset import (
     DummyDataset,
 )
 
