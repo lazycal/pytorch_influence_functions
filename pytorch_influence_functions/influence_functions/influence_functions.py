@@ -270,6 +270,7 @@ def calc_influence_single(
     gpu,
     recursion_depth,
     r,
+    damp=0.01,
     s_test_vec=None,
     time_logging=False,
 ):
@@ -312,6 +313,7 @@ def calc_influence_single(
             gpu,
             recursion_depth=recursion_depth,
             r=r,
+            damp=damp,
         )
 
     # Calculate the influence function
