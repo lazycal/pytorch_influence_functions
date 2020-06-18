@@ -146,8 +146,13 @@ def calc_loss(logits, labels):
 
     Returns:
         loss: scalar, the loss"""
+    
+    if logits.shape[-1] == 1:
+        loss = F.binary_cross_entropy_with_logits(logits, labels.type(torch.float))
+    else:
+        loss = F.cross_entropy(logits, labels)
 
-    return F.cross_entropy(logits, labels)
+    return loss
 
 
 def grad_z(x, y, model, gpu=-1):
