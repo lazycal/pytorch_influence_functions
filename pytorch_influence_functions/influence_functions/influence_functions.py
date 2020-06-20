@@ -271,8 +271,10 @@ def calc_influence_single(
     recursion_depth,
     r,
     damp=0.01,
+    scale=25,
     s_test_vec=None,
     time_logging=False,
+    loss_func="cross_entropy",
 ):
     """Calculates the influences of all training data points on a single
     test dataset image.
@@ -314,6 +316,8 @@ def calc_influence_single(
             recursion_depth=recursion_depth,
             r=r,
             damp=damp,
+            scale=scale,
+            loss_func=loss_func,
         )
 
     # Calculate the influence function
@@ -417,7 +421,7 @@ def get_dataset_sample_ids(num_samples, test_loader, num_classes=None, start_ind
     return sample_dict, sample_list
 
 
-def calc_img_wise(config, model, train_loader, test_loader):
+def calc_img_wise(config, model, train_loader, test_loader, loss_func="cross_entropy"):
     """Calculates the influence function one test point at a time. Calcualtes
     the `s_test` and `grad_z` values on the fly and discards them afterwards.
 
@@ -475,6 +479,7 @@ def calc_img_wise(config, model, train_loader, test_loader):
             gpu=config["gpu"],
             recursion_depth=config["recursion_depth"],
             r=config["r_averaging"],
+            loss_func=loss_func,
         )
         end_time = time.time()
 
