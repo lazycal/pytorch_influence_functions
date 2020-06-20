@@ -303,7 +303,7 @@ def calc_influence_single(
         test_id_num: int, the number of the test dataset point
             the influence was calculated for"""
     # Calculate s_test vectors if not provided
-    if not s_test_vec:
+    if s_test_vec is None:
         z_test, t_test = test_loader.dataset[test_id_num]
         z_test = test_loader.collate_fn([z_test])
         t_test = test_loader.collate_fn([t_test])
@@ -355,7 +355,6 @@ def calc_influence_single(
             )
 
         influences.append(tmp_influence)
-        # display_progress("Calc. influence function: ", i, train_dataset_size)
 
     harmful = np.argsort(influences)
     helpful = harmful[::-1]
