@@ -356,7 +356,7 @@ def calc_influence_single(
                 / train_dataset_size
             )
 
-        influences.append(tmp_influence)
+        influences.append(tmp_influence.item())
 
     harmful = np.argsort(influences)
     helpful = harmful[::-1]
