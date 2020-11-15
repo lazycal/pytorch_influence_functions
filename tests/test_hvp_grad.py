@@ -7,10 +7,10 @@ import unittest
 import numpy as np
 
 from pytorch_influence_functions.influence_functions.hvp_grad import (
-    calc_loss,
     s_test_sample,
     grad_z,
     s_test_cg,
+    s_test_sample_exact,
 )
 
 from pytorch_influence_functions.influence_functions.utils import (
@@ -26,7 +26,14 @@ from utils.dummy_dataset import (
 from utils.logistic_regression import (
     LogisticRegression,
 )
-
+def make_loss_f(model, params, names, x, y, wd=0):
+    def f(flat_params_):
+        split_params = tensor_to_tuple(flat_params_, params)
+        load_weights(model, names, split_params)
+        out = model(x)
+        loss = model.loss(out, y) #calc_loss(out, y) + wd/2 * torch.sum(flat_params_*flat_params_)
+        return loss
+    return f
 
 class TestIHVPGrad(TestCase):
     @classmethod
@@ -38,7 +45,8 @@ class TestIHVPGrad(TestCase):
 
         cls.n_params = cls.n_classes * cls.n_features + cls.n_features
 
-        cls.model = LogisticRegression(cls.n_classes, cls.n_features)
+        cls.wd = wd = 1e-2 # weight decay=1/(nC)
+        cls.model = LogisticRegression(cls.n_classes, cls.n_features, wd=cls.wd)
 
         gpus = 1 if torch.cuda.is_available() else 0
         
@@ -47,9 +55,9 @@ class TestIHVPGrad(TestCase):
 
         use_sklearn = True
         if use_sklearn:
-            train_dataset = DummyDataset(cls.n_features, cls.n_classes)
+            train_dataset = cls.model.training_set #DummyDataset(cls.n_features, cls.n_classes)
             multi_class = "multinomial" if cls.model.n_classes != 2 else "auto"
-            clf = SklearnLogReg(C=1e4, tol=1e-8, max_iter=1000, multi_class=multi_class)
+            clf = SklearnLogReg(C=1/len(train_dataset)/wd, tol=1e-8, max_iter=1000, multi_class=multi_class)
 
             clf.fit(train_dataset.data, train_dataset.targets)
 
@@ -101,22 +109,23 @@ class TestIHVPGrad(TestCase):
             if cls.gpu >= 0:
                 x_train, y_train = x_train.cuda(), y_train.cuda()
 
-            def f(flat_params_):
-                split_params = tensor_to_tuple(flat_params_, params)
-                load_weights(cls.model, names, split_params)
-                out = cls.model(x_train)
-                loss = calc_loss(out, y_train)
-                return loss
+            f = make_loss_f(cls.model, params, names, x_train, y_train, wd=wd)
 
             batch_h = hessian(f, flat_params, strict=True)
 
             with torch.no_grad():
                 h += batch_h / float(len(cls.train_loader))
 
+        h = (h + h.transpose(0,1))/2
         print("Hessian:")
         print(h)
 
         np.save("hessian_pytorch.npy", h.cpu().numpy())
+        from numpy import linalg as LA
+        ei = LA.eig(h.cpu().numpy())[0]
+        print('ei=', ei)
+        print("max,min eigen value=", ei.max(), ei.min())
+        assert ei.min() > 0, "Error: Non-positive Eigenvalues"
 
         # Make the model back `nn`
 
@@ -154,11 +163,36 @@ class TestIHVPGrad(TestCase):
             damp=0.0,
             r=10,
             recursion_depth=10_000,
+            batch_size=500,
         )
 
         flat_estimated_ihvp = parameters_to_vector(estimated_ihvp)
 
         print("LiSSA")
+        self.assertTrue(self.check_estimation(flat_estimated_ihvp))
+
+        print("Influence")
+        inf_app, inf_rea = [], []
+        for i, (x_train, y_train) in enumerate(self.model.train_dataloader(batch_size=1, shuffle=False)):
+            grads_train = grad_z(x_train, y_train, self.model, gpu=self.gpu)
+            flat_grads_train = parameters_to_vector(grads_train)
+            inf_app.append(- torch.sum(flat_grads_train * flat_estimated_ihvp / len(self.model.training_set)).item())
+            inf_rea.append(- torch.sum(flat_grads_train * self.real_ihvp / len(self.model.training_set)).item())
+        np.save("influence.npy", {'inf_app':inf_app, 'inf_rea':inf_rea})
+
+    def test_s_test_sample_exact(self):
+
+        estimated_ihvp = s_test_sample_exact(
+            self.model,
+            self.x_test,
+            self.y_test,
+            self.train_loader,
+            gpu=self.gpu,
+        )
+
+        flat_estimated_ihvp = parameters_to_vector(estimated_ihvp)
+
+        print("Exact")
         self.assertTrue(self.check_estimation(flat_estimated_ihvp))
 
     def check_estimation(self, estimated_ihvp):
