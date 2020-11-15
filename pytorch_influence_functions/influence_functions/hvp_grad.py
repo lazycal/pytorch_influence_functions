@@ -208,7 +208,7 @@ def s_test_sample_exact(model, x_test, y_test, train_loader, gpu=-1):
     flat_params = parameters_to_vector(params)
 
     h = torch.zeros([flat_params.shape[0], flat_params.shape[0]])
-    if gpu == 1:
+    if gpu >= 0:
         h = h.cuda()
     # Compute real IHVP
     for x_train, y_train in train_loader:
@@ -262,7 +262,7 @@ def s_test_sample(
         s_test_vec: torch tensor, contains s_test for a single test image"""
 
     if exact: # calculating it directly
-        return s_test_sample_exact(model, x_test, y_test, train_loader, gpu, damp)
+        return s_test_sample_exact(model, x_test, y_test, train_loader, gpu)
 
     inverse_hvp = [
         torch.zeros_like(params, dtype=torch.float) for params in model.parameters()
