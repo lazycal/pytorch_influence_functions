@@ -274,7 +274,8 @@ def calc_influence_single(
     scale=25,
     s_test_vec=None,
     time_logging=False,
-    loss_func="cross_entropy",
+    exact=False,
+    batch_size=1,
 ):
     """Calculates the influences of all training data points on a single
     test dataset image.
@@ -317,7 +318,8 @@ def calc_influence_single(
             r=r,
             damp=damp,
             scale=scale,
-            loss_func=loss_func,
+            exact=exact,
+            batch_size=batch_size,
         )
 
     # Calculate the influence function
