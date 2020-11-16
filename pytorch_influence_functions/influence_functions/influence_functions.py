@@ -298,7 +298,8 @@ def calc_influence_single(
 
     Returns:
         influence: list of float, influences of all training data samples
-            for one test sample
+            for one test sample, which is the predicted change in loss after 
+            removing the test sample
         harmful: list of float, influences sorted by harmfulness
         helpful: list of float, influences sorted by helpfulness
         test_id_num: int, the number of the test dataset point
@@ -324,7 +325,7 @@ def calc_influence_single(
 
     # Calculate the influence function
     train_dataset_size = len(train_loader.dataset)
-    influences = []
+    loss_diffs = [] # predicted value of new loss - original loss
     for i in tqdm(range(train_dataset_size)):
         z, t = train_loader.dataset[i]
         z = train_loader.collate_fn([z])
@@ -342,8 +343,8 @@ def calc_influence_single(
                 f"Time for grad_z iter:" f" {time_delta.total_seconds() * 1000}"
             )
         with torch.no_grad():
-            tmp_influence = (
-                -sum(
+            tmp_loss_diff = (
+                sum(
                     [
                         ####################
                         # TODO: potential bottle neck, takes 17% execution time
@@ -356,12 +357,12 @@ def calc_influence_single(
                 / train_dataset_size
             )
 
-        influences.append(tmp_influence.item())
+        loss_diffs.append(tmp_loss_diff.item())
 
-    harmful = np.argsort(influences)
+    harmful = np.argsort(loss_diffs)
     helpful = harmful[::-1]
 
-    return influences, harmful.tolist(), helpful.tolist(), test_id_num
+    return np.array(loss_diffs), harmful.tolist(), helpful.tolist(), test_id_num
 
 
 def get_dataset_sample_ids_per_class(class_id, num_samples, test_loader, start_index=0):
