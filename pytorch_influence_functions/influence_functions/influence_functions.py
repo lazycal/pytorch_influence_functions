@@ -284,7 +284,7 @@ def calc_influence_single(
         model: pytorch model
         train_loader: DataLoader, loads the training dataset
         test_loader: DataLoader, loads the test dataset
-        test_id_num: int, id of the test sample for which to calculate the
+        test_id_num: int or list of int, id of the test samples for which to calculate the
             influence function
         gpu: int, identifies the gpu id, -1 for cpu
         recursion_depth: int, number of recursions to perform during s_test
@@ -302,13 +302,15 @@ def calc_influence_single(
             removing the test sample
         harmful: list of float, influences sorted by harmfulness
         helpful: list of float, influences sorted by helpfulness
-        test_id_num: int, the number of the test dataset point
+        test_id_num: int or list of int, the id of the test dataset points
             the influence was calculated for"""
     # Calculate s_test vectors if not provided
     if s_test_vec is None:
-        z_test, t_test = test_loader.dataset[test_id_num]
-        z_test = test_loader.collate_fn([z_test])
-        t_test = test_loader.collate_fn([t_test])
+        if isinstance(test_id_num, int):
+            test_id_num = [test_id_num]
+        z_test, t_test = list(zip(*[test_loader.dataset[i] for i in test_id_num]))
+        z_test = test_loader.collate_fn(z_test)
+        t_test = test_loader.collate_fn(t_test)
         s_test_vec = s_test_sample(
             model,
             z_test,
